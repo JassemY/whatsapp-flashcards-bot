@@ -1,83 +1,82 @@
-const flashcardService = require('./flashcardService');
+const QUIZ_DATA = require('../data/quizData');
 
 class QuizService {
   /**
+   * Get all available topics
+   */
+  static getTopics() {
+    return Object.keys(QUIZ_DATA).sort();
+  }
+
+  /**
    * Start a quiz for a topic
-   * Returns the first card in the quiz
+   * Returns randomized questions for that topic
    */
-  static async startQuiz(userId, topic) {
-    try {
-      const cards = await flashcardService.getFlashcardsByTopic(userId, topic);
+  static startQuiz(topic) {
+    const questions = QUIZ_DATA[topic];
 
-      if (cards.length === 0) {
-        throw new Error(`No flashcards found for topic: ${topic}`);
-      }
+    if (!questions || questions.length === 0) {
+      throw new Error(`No questions found for topic: ${topic}`);
+    }
 
-      // Return quiz state with first card and all cards
+    // Return shuffled questions
+    const shuffled = [...questions].sort(() => Math.random() - 0.5);
+
+    return {
+      topic,
+      totalQuestions: shuffled.length,
+      currentIndex: 0,
+      questions: shuffled,
+      currentQuestion: shuffled[0]
+    };
+  }
+
+  /**
+   * Get the next question in the quiz
+   */
+  static getNextQuestion(quizState, currentIndex) {
+    const { questions, topic } = quizState;
+    const nextIdx = currentIndex + 1;
+
+    if (nextIdx >= questions.length) {
       return {
-        topic,
-        totalCards: cards.length,
-        currentIndex: 0,
-        cards,
-        currentCard: cards[0],
-        correct: 0,
-        wrong: 0
+        isComplete: true,
+        nextIndex: nextIdx
       };
-    } catch (error) {
-      console.error('Error starting quiz:', error.message);
-      throw error;
     }
+
+    return {
+      isComplete: false,
+      nextIndex: nextIdx,
+      question: questions[nextIdx]
+    };
   }
 
   /**
-   * Get the next card in a quiz
+   * Check if answer is correct
    */
-  static async getNextCard(userId, topic, cardIdx) {
-    try {
-      const cards = await flashcardService.getFlashcardsByTopic(userId, topic);
+  static checkAnswer(question, answerNumber) {
+    const answerIdx = parseInt(answerNumber, 10);
 
-      if (cards.length === 0) {
-        throw new Error(`No flashcards found for topic: ${topic}`);
-      }
-
-      // If we've reached the end of cards, cycle back to start or end quiz
-      const nextIdx = cardIdx % cards.length;
-      const nextCard = cards[nextIdx];
-
+    if (isNaN(answerIdx) || answerIdx < 1 || answerIdx > 4) {
       return {
-        card: nextCard,
-        index: nextIdx,
-        isEnd: cardIdx >= cards.length
+        valid: false,
+        message: 'Please answer with a number: 1, 2, 3, or 4'
       };
-    } catch (error) {
-      console.error('Error getting next card:', error.message);
-      throw error;
     }
-  }
 
-  /**
-   * Record answer and update stats
-   */
-  static async recordAnswer(cardId, userId, isCorrect) {
-    try {
-      await flashcardService.updateStats(cardId, isCorrect, userId);
-      return true;
-    } catch (error) {
-      console.error('Error recording answer:', error.message);
-      throw error;
-    }
-  }
+    const isCorrect = answerIdx === question.correctAnswer;
+    const correctText = question.options[question.correctAnswer - 1];
 
-  /**
-   * Get quiz summary stats
-   */
-  static async getQuizStats(userId, topic) {
-    try {
-      return await flashcardService.getStats(userId, topic);
-    } catch (error) {
-      console.error('Error getting quiz stats:', error.message);
-      throw error;
-    }
+    return {
+      valid: true,
+      isCorrect,
+      selectedAnswer: question.options[answerIdx - 1],
+      correctAnswer: correctText,
+      feedback: isCorrect
+        ? '✅ Correct!'
+        : `❌ Wrong! The correct answer is: ${correctText}`
+    };
   }
 }
 

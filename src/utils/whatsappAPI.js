@@ -1,8 +1,16 @@
 const axios = require('axios');
 
-const WHATSAPP_API_URL = 'https://graph.instagram.com/v18.0';
-const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
-const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
+const WHATSAPP_API_URL = 'https://graph.facebook.com/v25.0';
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN?.trim();
+const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim();
+
+// Debug: Log token details on load
+if (!WHATSAPP_TOKEN) {
+  console.error('⚠️  WHATSAPP_TOKEN is empty or undefined!');
+}
+if (WHATSAPP_TOKEN) {
+  console.log(`✓ Token loaded: ${WHATSAPP_TOKEN.substring(0, 10)}...${WHATSAPP_TOKEN.substring(WHATSAPP_TOKEN.length - 10)} (${WHATSAPP_TOKEN.length} chars)`);
+}
 
 class WhatsAppAPI {
   /**

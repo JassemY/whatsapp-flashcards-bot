@@ -1,137 +1,136 @@
 const UIBuilder = require('../ui');
-const quizService = require('../services/quizService');
-const flashcardService = require('../services/flashcardService');
+const QuizService = require('../services/quizService');
 const sessionService = require('../services/sessionService');
 
 class QuizController {
   /**
+   * Show topic selector to start a quiz
+   */
+  static async showTopicSelector(phoneNumber) {
+    try {
+      const topics = QuizService.getTopics();
+      await UIBuilder.sendTopicSelector(phoneNumber, topics);
+    } catch (error) {
+      console.error('Error showing topic selector:', error.message);
+      await UIBuilder.sendError(phoneNumber, error.message);
+    }
+  }
+
+  /**
    * Start a quiz for a topic
    */
-  static async startQuiz(userId, phoneNumber, topic) {
+  static async startQuiz(phoneNumber, topic) {
     try {
-      // Start the quiz
-      const quizState = await quizService.startQuiz(userId, topic);
+      const quizState = QuizService.startQuiz(topic);
 
       // Store in session
-      sessionService.setState(userId, 'IN_QUIZ', {
-        topic,
-        currentIndex: 0,
-        cards: quizState.cards,
-        correct: 0,
-        wrong: 0
-      });
+      sessionService.setState(phoneNumber, 'IN_QUIZ', quizState);
 
       // Send first question
-      const firstCard = quizState.currentCard;
-      await UIBuilder.sendQuizQuestion(phoneNumber, firstCard.question, firstCard.id, topic, 0);
+      const currentQuestion = quizState.currentQuestion;
+      await UIBuilder.sendQuizQuestion(
+        phoneNumber,
+        currentQuestion,
+        1,
+        quizState.totalQuestions
+      );
     } catch (error) {
       console.error('Error starting quiz:', error.message);
       await UIBuilder.sendError(phoneNumber, error.message);
-      await UIBuilder.sendMainMenu(userId, phoneNumber);
+      await UIBuilder.sendMainMenu(null, phoneNumber);
     }
   }
 
   /**
-   * Show answer for current card
+   * Handle quiz answer (text: 1, 2, 3, or 4)
    */
-  static async showAnswer(userId, phoneNumber, cardId) {
+  static async handleAnswer(phoneNumber, answerText) {
     try {
-      const card = await flashcardService.getFlashcardById(cardId, userId);
-
-      if (!card) {
-        throw new Error('Flashcard not found');
-      }
-
-      const session = sessionService.getState(userId);
+      const session = sessionService.getState(phoneNumber);
 
       if (!session || session.state !== 'IN_QUIZ') {
-        throw new Error('Quiz session not found');
-      }
-
-      const { topic } = session.data;
-
-      // Send answer with next button, don't increment yet
-      await UIBuilder.sendQuizAnswer(
-        phoneNumber,
-        card.question,
-        card.answer,
-        topic,
-        session.data.currentIndex + 1
-      );
-    } catch (error) {
-      console.error('Error showing answer:', error.message);
-      await UIBuilder.sendError(phoneNumber, error.message);
-    }
-  }
-
-  /**
-   * Move to next card in quiz
-   */
-  static async nextCard(userId, phoneNumber, topic, cardIdx) {
-    try {
-      const session = sessionService.getState(userId);
-
-      if (!session || session.state !== 'IN_QUIZ') {
-        throw new Error('Quiz session not found');
-      }
-
-      const { cards } = session.data;
-
-      // Check if quiz is over
-      if (cardIdx >= cards.length) {
-        // Quiz complete
-        await this.endQuiz(userId, phoneNumber);
+        await UIBuilder.sendError(phoneNumber, 'Quiz session not found');
+        await UIBuilder.sendMainMenu(null, phoneNumber);
         return;
       }
 
-      // Update session with new index
-      sessionService.setState(userId, 'IN_QUIZ', {
-        ...session.data,
-        currentIndex: cardIdx
+      const quizState = session.data;
+      const currentQuestion = quizState.currentQuestion;
+
+      // Check answer
+      const result = QuizService.checkAnswer(currentQuestion, answerText);
+
+      if (!result.valid) {
+        await UIBuilder.sendError(phoneNumber, result.message);
+        return;
+      }
+
+      // Show feedback
+      await UIBuilder.sendQuizFeedback(phoneNumber, result.feedback, true);
+
+      // Update state to wait for "next"
+      sessionService.setState(phoneNumber, 'QUIZ_ANSWER_GIVEN', {
+        ...quizState,
+        currentIndex: quizState.currentIndex + 1
       });
-
-      // Get next card
-      const nextCard = cards[cardIdx];
-
-      if (!nextCard) {
-        await this.endQuiz(userId, phoneNumber);
-        return;
-      }
-
-      // Send next question
-      await UIBuilder.sendQuizQuestion(phoneNumber, nextCard.question, nextCard.id, topic, cardIdx);
     } catch (error) {
-      console.error('Error moving to next card:', error.message);
+      console.error('Error handling answer:', error.message);
       await UIBuilder.sendError(phoneNumber, error.message);
     }
   }
 
   /**
-   * End quiz and show stats
+   * Move to next question (called after answer feedback)
    */
-  static async endQuiz(userId, phoneNumber) {
+  static async handleContinue(phoneNumber) {
     try {
-      const session = sessionService.getState(userId);
+      const session = sessionService.getState(phoneNumber);
 
-      if (!session || session.state !== 'IN_QUIZ') {
-        await UIBuilder.sendMainMenu(userId, phoneNumber);
+      if (!session || session.state !== 'QUIZ_ANSWER_GIVEN') {
+        // Might be user error, just show main menu
+        await UIBuilder.sendMainMenu(null, phoneNumber);
         return;
       }
 
-      const { topic, currentIndex, cards } = session.data;
+      const quizState = session.data;
+      const nextResult = QuizService.getNextQuestion(quizState, quizState.currentIndex - 1);
 
-      // Get stats from database
-      const stats = await quizService.getQuizStats(userId, topic);
+      if (nextResult.isComplete) {
+        // Quiz finished
+        await UIBuilder.sendQuizComplete(phoneNumber);
+        sessionService.clearState(phoneNumber);
+      } else {
+        // Show next question
+        sessionService.setState(phoneNumber, 'IN_QUIZ', {
+          ...quizState,
+          currentIndex: nextResult.nextIndex,
+          currentQuestion: nextResult.question
+        });
 
-      // Send summary
-      await UIBuilder.sendQuizEnd(phoneNumber, stats);
+        await UIBuilder.sendQuizQuestion(
+          phoneNumber,
+          nextResult.question,
+          nextResult.nextIndex + 1,
+          quizState.totalQuestions
+        );
+      }
+    } catch (error) {
+      console.error('Error continuing quiz:', error.message);
+      await UIBuilder.sendError(phoneNumber, error.message);
+    }
+  }
 
-      // Clear session
-      sessionService.clearState(userId);
+  /**
+   * End quiz and return to menu
+   */
+  static async endQuiz(phoneNumber) {
+    try {
+      sessionService.clearState(phoneNumber);
+      await UIBuilder.sendSuccess(phoneNumber, 'Quiz ended');
+      await UIBuilder.sendMainMenu(null, phoneNumber);
     } catch (error) {
       console.error('Error ending quiz:', error.message);
       await UIBuilder.sendError(phoneNumber, error.message);
-      await UIBuilder.sendMainMenu(userId, phoneNumber);
     }
   }
 }

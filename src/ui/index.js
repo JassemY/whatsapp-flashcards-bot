@@ -4,43 +4,33 @@ const flashcardService = require('../services/flashcardService');
 
 class UIBuilder {
   /**
-   * Send main menu with 3 action buttons
+   * Send main menu with Start Quiz button
    */
   static async sendMainMenu(userId, phoneNumber) {
     const buttons = [
       {
-        id: payloadUtil.encode({ main: 'ADD_CARD_START' }),
-        title: '➕ Add Flashcard'
-      },
-      {
         id: payloadUtil.encode({ main: 'START_QUIZ' }),
         title: '📝 Start Quiz'
-      },
-      {
-        id: payloadUtil.encode({ main: 'BROWSE_TOPICS' }),
-        title: '📚 Browse Topics'
       }
     ];
 
     return WhatsAppAPI.sendInteractiveButtons(
       phoneNumber,
-      '🎯 Welcome to Flashcards Bot!\n\nWhat would you like to do?',
+      '🎯 Welcome to Quiz Bot!\n\nSelect a topic and test your knowledge with multiple-choice questions.',
       buttons,
-      '📖 Flashcards Bot'
+      '📖 Quiz Bot'
     );
   }
 
   /**
    * Send topic selection list
    */
-  static async sendTopicSelector(userId, phoneNumber, topics = []) {
-    // If no topics, show message and return to main menu
+  static async sendTopicSelector(phoneNumber, topics = []) {
     if (topics.length === 0) {
-      await WhatsAppAPI.sendText(phoneNumber, '📚 No topics yet. Add your first flashcard!');
-      return UIBuilder.sendMainMenu(userId, phoneNumber);
+      await WhatsAppAPI.sendText(phoneNumber, '📚 No topics available.');
+      return UIBuilder.sendMainMenu(null, phoneNumber);
     }
 
-    // Create list items from topics
     const rows = topics.map((topic) => ({
       id: payloadUtil.encode({ main: 'START_QUIZ', topic }),
       title: topic,
@@ -50,97 +40,65 @@ class UIBuilder {
     const sections = [
       {
         title: 'Available Topics',
-        rows
+        rows: rows.slice(0, 10)
       }
     ];
 
     return WhatsAppAPI.sendList(
       phoneNumber,
-      '📚 Select a topic to start a quiz:',
+      '📚 Choose a topic to start a quiz:',
       sections,
-      'Choose Topic'
+      'Start Quiz'
     );
   }
 
   /**
-   * Send quiz question with answer/next/end buttons
+   * Send quiz question with 4 multiple choice options (plain text)
    */
-  static async sendQuizQuestion(phoneNumber, question, cardId, topic, cardIdx) {
-    const buttons = [
-      {
-        id: payloadUtil.encode({ main: 'QUIZ_SHOW_ANSWER', cardId }),
-        title: '👁️ Show Answer'
-      },
-      {
-        id: payloadUtil.encode({ main: 'QUIZ_NEXT', topic, cardIdx: cardIdx + 1 }),
-        title: '⏭️ Next'
-      },
-      {
-        id: payloadUtil.encode({ main: 'QUIZ_END' }),
-        title: '❌ End Quiz'
-      }
-    ];
+  static async sendQuizQuestion(phoneNumber, question, questionNumber, totalQuestions) {
+    const optionsText = question.options
+      .map((option, idx) => `${idx + 1}. ${option}`)
+      .join('\n');
 
-    return WhatsAppAPI.sendInteractiveButtons(
-      phoneNumber,
-      `❓ Question:\n\n${question}`,
-      buttons,
-      '📝 Quiz Mode'
-    );
-  }
+    const message = `
+📝 Question ${questionNumber}/${totalQuestions}
 
-  /**
-   * Send quiz answer with next/end buttons
-   */
-  static async sendQuizAnswer(phoneNumber, question, answer, topic, cardIdx) {
-    const buttons = [
-      {
-        id: payloadUtil.encode({ main: 'QUIZ_NEXT', topic, cardIdx }),
-        title: '✓ Got it!'
-      },
-      {
-        id: payloadUtil.encode({ main: 'QUIZ_END' }),
-        title: '❌ End Quiz'
-      }
-    ];
+${question.question}
 
-    const bodyText = `❓ Question:\n${question}\n\n✅ Answer:\n${answer}`;
+${optionsText}
 
-    return WhatsAppAPI.sendInteractiveButtons(
-      phoneNumber,
-      bodyText,
-      buttons,
-      '📝 Quiz Mode'
-    );
-  }
-
-  /**
-   * Send quiz end summary
-   */
-  static async sendQuizEnd(phoneNumber, stats) {
-    const summary = `
-📊 Quiz Complete!
-
-Total Cards Attempted: ${stats.total}
-✅ Correct: ${stats.correct}
-❌ Wrong: ${stats.wrong}
-📈 Accuracy: ${stats.accuracy.toFixed(1)}%
-
-Great job! 🎉
+Reply with: 1, 2, 3, or 4
     `.trim();
 
-    const buttons = [
-      {
-        id: payloadUtil.encode({ main: 'MAIN_MENU' }),
-        title: '🏠 Main Menu'
-      }
-    ];
+    return WhatsAppAPI.sendText(phoneNumber, message);
+  }
 
-    return WhatsAppAPI.sendInteractiveButtons(
-      phoneNumber,
-      summary,
-      buttons
-    );
+  /**
+   * Send quiz answer feedback
+   */
+  static async sendQuizFeedback(phoneNumber, feedback, nextAvailable = true) {
+    let message = feedback;
+
+    if (nextAvailable) {
+      message += '\n\n📤 Send anything to continue to next question...';
+    }
+
+    return WhatsAppAPI.sendText(phoneNumber, message);
+  }
+
+  /**
+   * Send quiz complete message
+   */
+  static async sendQuizComplete(phoneNumber) {
+    const message = `
+✅ Quiz Complete!
+
+Great job! You finished all questions.
+
+📤 Send anything to return to main menu...
+    `.trim();
+
+    return WhatsAppAPI.sendText(phoneNumber, message);
   }
 
   /**

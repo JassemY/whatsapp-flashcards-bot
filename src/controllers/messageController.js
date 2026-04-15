@@ -71,48 +71,14 @@ class MessageController {
           await UIBuilder.sendMainMenu(userId, phoneNumber);
           break;
 
-        case 'ADD_CARD_START':
-          await flashcardController.initiateAdd(userId, phoneNumber);
-          break;
-
-        case 'ADD_CARD_TOPIC':
-          await flashcardController.confirmTopic(userId, phoneNumber, action.topic);
-          break;
-
-        case 'ADD_CARD_QUESTION':
-          await flashcardController.confirmQuestion(userId, phoneNumber, action.topic, action.question);
-          break;
-
-        case 'ADD_CARD_ANSWER':
-          await flashcardController.saveFlashcard(userId, phoneNumber, action.topic, action.question, action.answer);
-          break;
-
         case 'START_QUIZ':
-          await quizController.startQuiz(userId, phoneNumber, action.topic);
-          break;
-
-        case 'QUIZ_SHOW_ANSWER':
-          await quizController.showAnswer(userId, phoneNumber, action.cardId);
-          break;
-
-        case 'QUIZ_NEXT':
-          await quizController.nextCard(userId, phoneNumber, action.topic, action.cardIdx);
-          break;
-
-        case 'QUIZ_END':
-          await quizController.endQuiz(userId, phoneNumber);
-          break;
-
-        case 'BROWSE_TOPICS':
-          await browseController.listTopics(userId, phoneNumber);
-          break;
-
-        case 'BROWSE_TOPIC_CARDS':
-          await browseController.listCardsByTopic(userId, phoneNumber, action.topic);
-          break;
-
-        case 'DELETE_CARD':
-          await flashcardController.deleteFlashcard(userId, phoneNumber, action.cardId);
+          if (action.topic) {
+            // Start quiz with topic
+            await quizController.startQuiz(phoneNumber, action.topic);
+          } else {
+            // Show topic selector
+            await quizController.showTopicSelector(phoneNumber);
+          }
           break;
 
         default:
@@ -129,13 +95,27 @@ class MessageController {
    * Handle text messages
    */
   static async handleTextMessage(userId, phoneNumber, message) {
-    const text = message.text.body;
+    const text = message.text.body?.trim();
 
     console.log(`\n💬 Text from ${phoneNumber}: "${text}"`);
 
-    // For now, text is only allowed in specific contexts (add flashcard question/answer)
-    // We will handle this in the flashcard controller context
-    // For other text messages, send main menu
+    const sessionService = require('../services/sessionService');
+    const session = sessionService.getState(phoneNumber);
+
+    // Check if user is in a quiz
+    if (session?.state === 'IN_QUIZ') {
+      // Text input is an answer (1, 2, 3, or 4)
+      await quizController.handleAnswer(phoneNumber, text);
+      return;
+    }
+
+    if (session?.state === 'QUIZ_ANSWER_GIVEN') {
+      // Any text means continue to next question
+      await quizController.handleContinue(phoneNumber);
+      return;
+    }
+
+    // If not in quiz, show main menu
     try {
       await UIBuilder.sendMainMenu(userId, phoneNumber);
     } catch (error) {
